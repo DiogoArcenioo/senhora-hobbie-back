@@ -1,0 +1,6 @@
+export class CreateUsuarioDto {
+  nome!: string;
+  email!: string;
+  senha_hash?: string | null;
+  ativo?: boolean;
+}

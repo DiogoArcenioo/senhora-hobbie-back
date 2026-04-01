@@ -1,8 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { PagamentosModule } from './pagamentos/pagamentos.module';
+import { PlanosModule } from './planos/planos.module';
+import { UsuariosModule } from './usuarios/usuarios.module';
 
 @Module({
   imports: [
@@ -12,38 +18,53 @@ import { AppService } from './app.service';
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const synchronize = configService.get<string>('DB_SYNCHRONIZE', 'false') === 'true';
+        const getRequiredEnv = (key: string): string => {
+          const value = configService.get<string>(key);
+
+          if (!value || value.trim().length === 0) {
+            throw new Error(`Variavel de ambiente obrigatoria ausente: ${key}`);
+          }
+
+          return value.trim();
+        };
+
+        const synchronize =
+          configService.get<string>('DB_SYNCHRONIZE') === 'true';
         const ssl =
-          configService.get<string>('DB_SSL', 'false') === 'true'
+          configService.get<string>('DB_SSL') === 'true'
             ? { rejectUnauthorized: false }
             : false;
-        const databaseUrl = configService.get<string>('DATABASE_URL');
+        const port = Number(getRequiredEnv('DB_PORT'));
 
-        if (databaseUrl) {
-          return {
-            type: 'postgres',
-            url: databaseUrl,
-            autoLoadEntities: true,
-            synchronize,
-            ssl,
-          };
+        if (Number.isNaN(port)) {
+          throw new Error('Variavel de ambiente DB_PORT precisa ser numerica');
         }
 
         return {
           type: 'postgres',
-          host: configService.get<string>('DB_HOST', 'localhost'),
-          port: Number(configService.get<string>('DB_PORT', '5432')),
-          username: configService.get<string>('DB_USER', 'postgres'),
-          password: configService.get<string>('DB_PASSWORD', 'postgres'),
-          database: configService.get<string>('DB_NAME', 'postgres'),
+          host: getRequiredEnv('DB_HOST'),
+          port,
+          username: getRequiredEnv('DB_USER'),
+          password: getRequiredEnv('DB_PASSWORD'),
+          database: getRequiredEnv('DB_NAME'),
           autoLoadEntities: true,
           synchronize,
           ssl,
         };
       },
     }),
+    AuthModule,
+    PagamentosModule,
+    PlanosModule,
+    UsuariosModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+  ],
 })
 export class AppModule {}
