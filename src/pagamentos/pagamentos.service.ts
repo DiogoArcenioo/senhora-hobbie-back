@@ -390,11 +390,14 @@ export class PagamentosService {
     });
 
     try {
+      const checkoutResultUrl = `${frontendUrl}/assinatura/checkout/resultado?status=pending&flow=subscription`;
+      const autoRecurring = this.buildAutoRecurringFromPlano(plano);
+
       const preapprovalPlanPayload = {
         reason: `Plano ${plano.nome}`,
         external_reference: `pln:${plano.id}`,
-        auto_recurring: this.buildAutoRecurringFromPlano(plano),
-        back_url: `${frontendUrl}/assinatura/checkout/resultado?status=pending&flow=subscription`,
+        auto_recurring: autoRecurring,
+        back_url: checkoutResultUrl,
       };
 
       const preapprovalPlanResponse = await fetch(
@@ -442,38 +445,85 @@ export class PagamentosService {
       };
       pagamento = await this.pagamentosRepository.save(pagamento);
 
-      const preapprovalPayload = {
+      const headers = {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': randomUUID(),
+      };
+
+      let preapprovalData: MercadoPagoPreapprovalResponse | null = null;
+      let flowMode: 'ASSOCIATED_PLAN' | 'DIRECT_PENDING' = 'ASSOCIATED_PLAN';
+
+      const associatedPlanPayload = {
         preapproval_plan_id: preapprovalPlanId,
         reason: `Assinatura ${plano.nome}`,
         external_reference: externalReference,
         payer_email: dto.userEmail,
-        back_url: `${frontendUrl}/assinatura/checkout/resultado?status=pending&flow=subscription`,
+        back_url: checkoutResultUrl,
       };
 
       const preapprovalResponse = await fetch(
         'https://api.mercadopago.com/preapproval',
         {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-            'X-Idempotency-Key': randomUUID(),
-          },
-          body: JSON.stringify(preapprovalPayload),
+          headers,
+          body: JSON.stringify(associatedPlanPayload),
         },
       );
 
-      const preapprovalData = (await preapprovalResponse
+      preapprovalData = (await preapprovalResponse
         .json()
         .catch(() => null)) as MercadoPagoPreapprovalResponse | null;
 
       if (!preapprovalResponse.ok) {
-        throw new BadGatewayException(
-          this.resolveMercadoPagoError(
-            preapprovalData,
-            'Nao foi possivel criar a assinatura recorrente no Mercado Pago',
-          ),
+        const associatedPlanError = this.resolveMercadoPagoError(
+          preapprovalData,
+          'Nao foi possivel criar a assinatura recorrente no Mercado Pago',
         );
+
+        const shouldFallbackToDirectPending =
+          associatedPlanError.toLowerCase().includes('card_token_id') &&
+          associatedPlanError.toLowerCase().includes('required');
+
+        if (!shouldFallbackToDirectPending) {
+          throw new BadGatewayException(associatedPlanError);
+        }
+
+        const directPendingPayload = {
+          reason: `Assinatura ${plano.nome}`,
+          external_reference: externalReference,
+          payer_email: dto.userEmail,
+          auto_recurring: autoRecurring,
+          back_url: checkoutResultUrl,
+          status: 'pending',
+        };
+
+        const directPendingResponse = await fetch(
+          'https://api.mercadopago.com/preapproval',
+          {
+            method: 'POST',
+            headers: {
+              ...headers,
+              'X-Idempotency-Key': randomUUID(),
+            },
+            body: JSON.stringify(directPendingPayload),
+          },
+        );
+
+        preapprovalData = (await directPendingResponse
+          .json()
+          .catch(() => null)) as MercadoPagoPreapprovalResponse | null;
+
+        if (!directPendingResponse.ok) {
+          throw new BadGatewayException(
+            this.resolveMercadoPagoError(
+              preapprovalData,
+              'Nao foi possivel criar a assinatura recorrente no Mercado Pago',
+            ),
+          );
+        }
+
+        flowMode = 'DIRECT_PENDING';
       }
 
       const preapprovalId =
@@ -518,9 +568,13 @@ export class PagamentosService {
       pagamento.status = subscriptionStatus.pagamentoStatus;
       pagamento.detalhes_gateway = {
         ...(pagamento.detalhes_gateway ?? {}),
-        etapa: 'preapproval_created',
+        etapa:
+          flowMode === 'DIRECT_PENDING'
+            ? 'preapproval_created_direct_pending'
+            : 'preapproval_created',
         mp_preapproval_id: preapprovalId,
         mp_preapproval_status: preapprovalData?.status ?? null,
+        mp_subscription_flow: flowMode,
       };
       pagamento = await this.pagamentosRepository.save(pagamento);
 
@@ -535,6 +589,7 @@ export class PagamentosService {
           planoId: plano.id,
           preapprovalPlanId,
           preapprovalId,
+          flowMode,
         },
       });
 
@@ -544,6 +599,7 @@ export class PagamentosService {
         checkout_url: checkoutUrl,
         assinatura_id: assinatura.id,
         pagamento_id: pagamento.id,
+        flow_mode: flowMode,
       };
     } catch (error) {
       pagamento.status = 'FAILED';
