@@ -49,6 +49,31 @@ export class PagamentosController {
     });
   }
 
+  @Post('assinaturas/plano-associado')
+  createAssociatedPlanSubscription(
+    @Body() body: CreateCheckoutProDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const planoId =
+      typeof body?.planoId === 'string' ? body.planoId.trim() : '';
+    const userId = typeof req.user?.userId === 'string' ? req.user.userId : '';
+    const userEmail = typeof req.user?.email === 'string' ? req.user.email : '';
+
+    if (!planoId) {
+      throw new BadRequestException('planoId e obrigatorio');
+    }
+
+    if (!userId || !userEmail) {
+      throw new BadRequestException('Usuario autenticado invalido');
+    }
+
+    return this.pagamentosService.createAssociatedPlanSubscription({
+      planoId,
+      userId,
+      userEmail,
+    });
+  }
+
   @Post('mercado-pago/confirmar')
   confirmMercadoPagoPayment(
     @Body() body: ConfirmarPagamentoDto,
@@ -56,14 +81,23 @@ export class PagamentosController {
   ) {
     const paymentId =
       typeof body?.paymentId === 'string' ? body.paymentId.trim() : '';
+    const preapprovalId =
+      typeof body?.preapprovalId === 'string' ? body.preapprovalId.trim() : '';
     const userId = typeof req.user?.userId === 'string' ? req.user.userId : '';
 
-    if (!paymentId) {
-      throw new BadRequestException('paymentId e obrigatorio');
+    if (!paymentId && !preapprovalId) {
+      throw new BadRequestException('paymentId ou preapprovalId e obrigatorio');
     }
 
     if (!userId) {
       throw new BadRequestException('Usuario autenticado invalido');
+    }
+
+    if (preapprovalId) {
+      return this.pagamentosService.confirmMercadoPagoSubscription(
+        preapprovalId,
+        userId,
+      );
     }
 
     return this.pagamentosService.confirmMercadoPagoPayment(paymentId, userId);
