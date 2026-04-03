@@ -14,6 +14,9 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { EventoImagem } from './entities/evento-imagem.entity';
 import { Evento } from './entities/evento.entity';
 
+const EVENTO_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+const EVENTO_MAX_FILE_SIZE_MB = 25;
+
 type CriarEventoInput = {
   titulo?: string;
   descricao_resumo?: string;
@@ -172,8 +175,11 @@ export class EventosService {
   ): Promise<EventoAlbumPublico> {
     await this.validarPermissaoAdmin(usuarioId);
 
-    const titulo = this.requireText(body.titulo, 'Titulo do evento obrigatorio');
-    const descricaoResumo = this.requireText(
+    const titulo = this.requireTextUpper(
+      body.titulo,
+      'Titulo do evento obrigatorio',
+    );
+    const descricaoResumo = this.requireTextUpper(
       body.descricao_resumo,
       'Resumo do evento obrigatorio',
     );
@@ -190,9 +196,8 @@ export class EventosService {
       throw new BadRequestException('Foto de capa obrigatoria');
     }
 
-    this.validarArquivo(capaArquivo);
     const fotosArquivos = arquivos.fotos ?? [];
-    fotosArquivos.forEach((arquivo) => this.validarArquivo(arquivo));
+    this.validarArquivos(capaArquivo, fotosArquivos);
 
     const slug = await this.generateUniqueSlug(titulo);
     const status = this.normalizeStatus(body.status);
@@ -209,9 +214,9 @@ export class EventosService {
       titulo,
       slug,
       descricao_resumo: descricaoResumo,
-      descricao_detalhada: this.optionalText(body.descricao_detalhada),
-      local_nome: this.optionalText(body.local_nome),
-      local_endereco: this.optionalText(body.local_endereco),
+      descricao_detalhada: this.optionalTextUpper(body.descricao_detalhada),
+      local_nome: this.optionalTextUpper(body.local_nome),
+      local_endereco: this.optionalTextUpper(body.local_endereco),
       inicio_em: inicioEm,
       fim_em: fimEm,
       capa_imagem: capaImagem,
@@ -319,19 +324,42 @@ export class EventosService {
     return this.imagensRepository.save(imagem);
   }
 
-  private validarArquivo(arquivo: Express.Multer.File | undefined): asserts arquivo is Express.Multer.File {
-    if (!arquivo) {
-      throw new BadRequestException('Arquivo de imagem nao informado');
+  private validarArquivos(
+    capaArquivo: Express.Multer.File,
+    fotosArquivos: Express.Multer.File[],
+  ): void {
+    const arquivos = [capaArquivo, ...fotosArquivos];
+
+    const arquivosNaoImagem = arquivos
+      .filter(
+        (arquivo) =>
+          !arquivo.mimetype || !arquivo.mimetype.startsWith('image/'),
+      )
+      .map((arquivo) => this.resolveNomeArquivo(arquivo));
+
+    if (arquivosNaoImagem.length > 0) {
+      throw new BadRequestException(
+        `Apenas arquivos de imagem sao permitidos. Invalidos: ${arquivosNaoImagem.join(
+          ', ',
+        )}`,
+      );
     }
 
-    if (!arquivo.mimetype || !arquivo.mimetype.startsWith('image/')) {
-      throw new BadRequestException('Apenas arquivos de imagem sao permitidos');
-    }
+    const arquivosAcimaDoLimite = arquivos
+      .filter((arquivo) => arquivo.size > EVENTO_MAX_FILE_SIZE_BYTES)
+      .map(
+        (arquivo) =>
+          `${this.resolveNomeArquivo(arquivo)} (${this.formatBytes(
+            arquivo.size,
+          )})`,
+      );
 
-    const maxSize = 10 * 1024 * 1024;
-
-    if (arquivo.size > maxSize) {
-      throw new BadRequestException('Imagem excede o limite de 10MB');
+    if (arquivosAcimaDoLimite.length > 0) {
+      throw new BadRequestException(
+        `Arquivos acima do limite de ${EVENTO_MAX_FILE_SIZE_MB}MB: ${arquivosAcimaDoLimite.join(
+          ', ',
+        )}`,
+      );
     }
   }
 
@@ -352,6 +380,21 @@ export class EventosService {
     }
 
     return normalized;
+  }
+
+  private optionalTextUpper(value?: string): string | null {
+    const normalized = this.optionalText(value);
+
+    if (!normalized) {
+      return null;
+    }
+
+    return normalized.toUpperCase();
+  }
+
+  private requireTextUpper(value: string | undefined, message: string): string {
+    const normalized = this.requireText(value, message);
+    return normalized.toUpperCase();
   }
 
   private parseDate(value: string | undefined, message: string): Date {
@@ -440,5 +483,20 @@ export class EventosService {
 
     this.supabaseClient = createClient(supabaseUrl, serviceRoleKey);
     return this.supabaseClient;
+  }
+
+  private resolveNomeArquivo(arquivo: Express.Multer.File): string {
+    const original = arquivo.originalname?.trim();
+
+    if (original && original.length > 0) {
+      return original;
+    }
+
+    return 'arquivo_sem_nome';
+  }
+
+  private formatBytes(bytes: number): string {
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(2)}MB`;
   }
 }
