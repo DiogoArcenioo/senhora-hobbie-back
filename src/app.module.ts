@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { ImagensModule } from './imagens/imagens.module';
 import { PagamentosModule } from './pagamentos/pagamentos.module';
 import { PlanosModule } from './planos/planos.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
@@ -54,6 +55,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
       },
     }),
     AuthModule,
+    ImagensModule,
     PagamentosModule,
     PlanosModule,
     UsuariosModule,

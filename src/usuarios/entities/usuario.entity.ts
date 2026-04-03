@@ -20,6 +20,9 @@ export class Usuario {
   @Column({ type: 'text', nullable: true })
   senha_hash!: string | null;
 
+  @Column({ type: 'varchar', length: 20, default: 'CLIENTE' })
+  tipo!: string;
+
   @Column({ type: 'boolean', default: true })
   ativo!: boolean;
 

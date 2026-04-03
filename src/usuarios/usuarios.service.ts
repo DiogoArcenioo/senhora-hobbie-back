@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -40,6 +41,7 @@ export class UsuariosService {
       nome: nomeNormalizado,
       email: emailNormalizado,
       senha_hash: senhaHash ?? null,
+      tipo: this.normalizeTipo(createUsuarioDto.tipo),
       ativo: createUsuarioDto.ativo ?? true,
     });
     const usuarioSalvo = await this.usuariosRepository.save(usuario);
@@ -83,6 +85,10 @@ export class UsuariosService {
 
     if (senhaHash !== undefined) {
       dadosAtualizacao.senha_hash = senhaHash;
+    }
+
+    if (updateUsuarioDto.tipo !== undefined) {
+      dadosAtualizacao.tipo = this.normalizeTipo(updateUsuarioDto.tipo);
     }
 
     this.usuariosRepository.merge(usuario, dadosAtualizacao);
@@ -147,5 +153,19 @@ export class UsuariosService {
 
   private normalizeUpper(value: string): string {
     return value.trim().toUpperCase();
+  }
+
+  private normalizeTipo(tipo?: string | null): string {
+    if (!tipo) {
+      return 'CLIENTE';
+    }
+
+    const tipoNormalizado = tipo.trim().toUpperCase();
+
+    if (tipoNormalizado !== 'ADM' && tipoNormalizado !== 'CLIENTE') {
+      throw new BadRequestException('Tipo de usuario invalido');
+    }
+
+    return tipoNormalizado;
   }
 }
