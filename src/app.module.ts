@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { DatabaseBootstrapService } from './database/database-bootstrap.service';
 import { ImagensModule } from './imagens/imagens.module';
 import { PagamentosModule } from './pagamentos/pagamentos.module';
 import { PlanosModule } from './planos/planos.module';
@@ -63,6 +64,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
   controllers: [AppController],
   providers: [
     AppService,
+    DatabaseBootstrapService,
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
