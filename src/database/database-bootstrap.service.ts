@@ -72,7 +72,57 @@ export class DatabaseBootstrapService implements OnModuleInit {
         )
       `);
 
-      this.logger.log('Schema minimo de imagens e usuarios verificado com sucesso');
+      await this.dataSource.query(`
+        create table if not exists public.eventos (
+          id bigserial primary key,
+          criado_por_usuario_id bigint not null references public.usuarios(id),
+          titulo varchar(180) not null,
+          slug varchar(220) not null unique,
+          descricao_resumo text not null,
+          descricao_detalhada text,
+          local_nome varchar(180),
+          local_endereco text,
+          inicio_em timestamp with time zone not null,
+          fim_em timestamp with time zone,
+          capa_imagem_id bigint references public.imagens(id) on delete set null,
+          status varchar(20) not null default 'PUBLICADO',
+          ativo boolean not null default true,
+          created_at timestamp with time zone default now(),
+          updated_at timestamp with time zone default now()
+        )
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_eventos_inicio_em
+          on public.eventos (inicio_em desc)
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_eventos_status_inicio
+          on public.eventos (status, inicio_em desc)
+      `);
+
+      await this.dataSource.query(`
+        create table if not exists public.evento_imagens (
+          id bigserial primary key,
+          evento_id bigint not null references public.eventos(id) on delete cascade,
+          imagem_id bigint not null references public.imagens(id) on delete restrict,
+          ordem integer not null default 0 check (ordem >= 0),
+          legenda text,
+          destaque boolean not null default false,
+          created_at timestamp with time zone default now(),
+          unique (evento_id, imagem_id)
+        )
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_evento_imagens_evento_ordem
+          on public.evento_imagens (evento_id, ordem, id)
+      `);
+
+      this.logger.log(
+        'Schema minimo de usuarios, imagens e eventos verificado com sucesso',
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Falha ao verificar schema inicial: ${message}`);
