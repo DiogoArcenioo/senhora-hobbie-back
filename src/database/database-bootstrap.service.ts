@@ -31,6 +31,31 @@ export class DatabaseBootstrapService implements OnModuleInit {
       `);
 
       await this.dataSource.query(`
+        create table if not exists public.endereco_usuarios (
+          id bigserial primary key,
+          usuario_id bigint not null unique,
+          logradouro varchar(180) not null,
+          numero varchar(40) not null,
+          complemento varchar(150),
+          bairro varchar(120) not null,
+          cidade varchar(120) not null,
+          estado varchar(2) not null,
+          cep varchar(20) not null,
+          created_at timestamp with time zone default now(),
+          updated_at timestamp with time zone default now(),
+          constraint fk_endereco_usuarios_usuario
+            foreign key (usuario_id)
+            references public.usuarios (id)
+            on delete cascade
+        )
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_endereco_usuarios_usuario_id
+          on public.endereco_usuarios (usuario_id)
+      `);
+
+      await this.dataSource.query(`
         create table if not exists public.imagens (
           id bigserial primary key,
           usuario_id bigint not null,
@@ -191,7 +216,7 @@ export class DatabaseBootstrapService implements OnModuleInit {
       `);
 
       this.logger.log(
-        'Schema minimo de usuarios, imagens, slider home, eventos, produtos e pagamentos verificado com sucesso',
+        'Schema minimo de usuarios, enderecos, imagens, slider home, eventos, produtos e pagamentos verificado com sucesso',
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
