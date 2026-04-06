@@ -6,11 +6,20 @@ import {
   Param,
   Patch,
   Post,
+  Req,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UsuariosService } from './usuarios.service';
+
+type AuthenticatedRequest = Request & {
+  user?: {
+    userId?: string;
+  };
+};
 
 @Controller('usuarios')
 export class UsuariosController {
@@ -19,26 +28,44 @@ export class UsuariosController {
   @Public()
   @Post()
   create(@Body() createUsuarioDto: CreateUsuarioDto) {
-    return this.usuariosService.create(createUsuarioDto);
+    return this.usuariosService.createPublic(createUsuarioDto);
   }
 
   @Get()
-  findAll() {
-    return this.usuariosService.findAll();
+  findAll(@Req() req: AuthenticatedRequest) {
+    return this.usuariosService.findAll(this.getAuthenticatedUserId(req));
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usuariosService.findOne(id);
+  findOne(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    return this.usuariosService.findOne(id, this.getAuthenticatedUserId(req));
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateUsuarioDto: UpdateUsuarioDto) {
-    return this.usuariosService.update(id, updateUsuarioDto);
+  update(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() updateUsuarioDto: UpdateUsuarioDto,
+  ) {
+    return this.usuariosService.update(
+      id,
+      updateUsuarioDto,
+      this.getAuthenticatedUserId(req),
+    );
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.usuariosService.remove(id);
+  remove(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    return this.usuariosService.remove(id, this.getAuthenticatedUserId(req));
+  }
+
+  private getAuthenticatedUserId(req: AuthenticatedRequest): string {
+    const userId = typeof req.user?.userId === 'string' ? req.user.userId : '';
+
+    if (!userId || !userId.trim()) {
+      throw new UnauthorizedException('Usuario nao autenticado');
+    }
+
+    return userId.trim();
   }
 }

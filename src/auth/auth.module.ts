@@ -9,6 +9,16 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
+function getRequiredJwtSecret(configService: ConfigService): string {
+  const jwtSecret = configService.get<string>('JWT_SECRET')?.trim();
+
+  if (!jwtSecret) {
+    throw new Error('Variavel de ambiente obrigatoria ausente: JWT_SECRET');
+  }
+
+  return jwtSecret;
+}
+
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
@@ -21,10 +31,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
         ) as StringValue;
 
         return {
-          secret: configService.get<string>(
-            'JWT_SECRET',
-            'troque_essa_chave_em_producao',
-          ),
+          secret: getRequiredJwtSecret(configService),
           signOptions: {
             expiresIn,
           },

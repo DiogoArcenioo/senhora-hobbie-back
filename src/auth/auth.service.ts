@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { compare } from 'bcryptjs';
+import { compare, hash } from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 import { ILike, Repository } from 'typeorm';
 import { Usuario } from '../usuarios/entities/usuario.entity';
@@ -25,10 +25,7 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais invalidas');
     }
 
-    const senhaValida = await this.validarSenha(
-      loginDto.senha,
-      usuario.senha_hash,
-    );
+    const senhaValida = await this.validarSenha(loginDto.senha, usuario);
 
     if (!senhaValida) {
       throw new UnauthorizedException('Credenciais invalidas');
@@ -54,13 +51,26 @@ export class AuthService {
 
   private async validarSenha(
     senhaInformada: string,
-    senhaHash: string,
+    usuario: Usuario,
   ): Promise<boolean> {
+    const senhaHash = usuario.senha_hash;
+
+    if (!senhaHash) {
+      return false;
+    }
+
     if (this.isBcryptHash(senhaHash)) {
       return compare(senhaInformada, senhaHash);
     }
 
-    return senhaInformada === senhaHash;
+    if (senhaInformada !== senhaHash) {
+      return false;
+    }
+
+    usuario.senha_hash = await hash(senhaInformada, 10);
+    await this.usuariosRepository.save(usuario);
+
+    return true;
   }
 
   private isBcryptHash(senhaHash: string): boolean {

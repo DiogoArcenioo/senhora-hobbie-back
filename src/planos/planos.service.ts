@@ -207,10 +207,13 @@ export class PlanosService {
       throw new BadRequestException('Valor da assinatura obrigatorio');
     }
 
-    const parsedValue =
-      typeof value === 'number'
-        ? value
-        : Number(String(value).replace(',', '.'));
+    let parsedValue = Number.NaN;
+
+    if (typeof value === 'number') {
+      parsedValue = value;
+    } else if (typeof value === 'string') {
+      parsedValue = Number(value.replace(',', '.'));
+    }
 
     if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
       throw new BadRequestException('Valor da assinatura invalido');
@@ -224,8 +227,13 @@ export class PlanosService {
       return null;
     }
 
-    const parsedValue =
-      typeof value === 'number' ? value : Number(String(value).trim());
+    let parsedValue = Number.NaN;
+
+    if (typeof value === 'number') {
+      parsedValue = value;
+    } else if (typeof value === 'string') {
+      parsedValue = Number(value.trim());
+    }
 
     if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
       throw new BadRequestException('Duracao invalida');

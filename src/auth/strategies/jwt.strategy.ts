@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import {
+  ExtractJwt,
+  Strategy,
+  type JwtFromRequestFunction,
+} from 'passport-jwt';
 
 type JwtPayload = {
   sub: string;
@@ -12,14 +16,25 @@ type JwtPayload = {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(configService: ConfigService) {
+    const jwtSecret = configService.get<string>('JWT_SECRET')?.trim();
+
+    if (!jwtSecret) {
+      throw new Error('Variavel de ambiente obrigatoria ausente: JWT_SECRET');
+    }
+    const jwtExtractorFactory = (
+      ExtractJwt as unknown as {
+        fromAuthHeaderAsBearerToken: () => JwtFromRequestFunction;
+      }
+    ).fromAuthHeaderAsBearerToken;
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
+    const jwtFromRequest = jwtExtractorFactory();
+
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest,
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>(
-        'JWT_SECRET',
-        'troque_essa_chave_em_producao',
-      ),
+      secretOrKey: jwtSecret,
     });
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call */
   }
 
   validate(payload: JwtPayload) {

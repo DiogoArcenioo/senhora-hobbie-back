@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomUUID } from 'crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { Repository } from 'typeorm';
 import { Plano } from '../planos/entities/plano.entity';
 import { PlanosService } from '../planos/planos.service';
@@ -105,6 +105,12 @@ type WebhookInput = {
   headers: Record<string, unknown>;
   query: Record<string, unknown>;
   body: unknown;
+};
+
+type WebhookSignatureValidation = {
+  enforced: boolean;
+  isValid: boolean | null;
+  reason: string | null;
 };
 
 @Injectable()
@@ -897,6 +903,12 @@ export class PagamentosService {
       input.query,
       input.body,
     );
+    const signatureValidation = this.validateMercadoPagoWebhookSignature({
+      headers: input.headers,
+      query: input.query,
+      paymentId,
+      preapprovalId,
+    });
 
     const webhook = await this.webhooksRepository.save(
       this.webhooksRepository.create({
@@ -911,12 +923,40 @@ export class PagamentosService {
           body: input.body,
         },
         headers: input.headers,
-        assinatura_valida: null,
+        assinatura_valida: signatureValidation.isValid,
         processado: false,
         data_processamento: null,
         erro_processamento: null,
       }),
     );
+
+    if (signatureValidation.enforced && signatureValidation.isValid === false) {
+      webhook.processado = true;
+      webhook.data_processamento = new Date();
+      webhook.erro_processamento =
+        signatureValidation.reason ?? 'Assinatura do webhook invalida';
+      await this.webhooksRepository.save(webhook);
+
+      await this.createLog({
+        nivel: 'WARN',
+        evento: 'WEBHOOK_ASSINATURA_INVALIDA',
+        descricao: `Webhook ${webhook.id} rejeitado por assinatura invalida`,
+        webhookId: webhook.id,
+        detalhes: {
+          eventType,
+          action,
+          paymentId,
+          preapprovalId,
+          motivo: webhook.erro_processamento,
+        },
+      });
+
+      return {
+        received: true,
+        processed: false,
+        webhook_id: webhook.id,
+      };
+    }
 
     if (!paymentId && !preapprovalId) {
       webhook.processado = true;
@@ -1708,6 +1748,169 @@ export class PagamentosService {
     return `pag:${reference.pagamentoId}|usr:${reference.userId}|prd:${reference.produtoId}`;
   }
 
+  private validateMercadoPagoWebhookSignature(input: {
+    headers: Record<string, unknown>;
+    query: Record<string, unknown>;
+    paymentId: string | null;
+    preapprovalId: string | null;
+  }): WebhookSignatureValidation {
+    const webhookSecret = this.configService
+      .get<string>('MP_WEBHOOK_SECRET')
+      ?.trim();
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+    const shouldEnforceByEnvironment =
+      nodeEnv.trim().toLowerCase() === 'production';
+
+    if (!webhookSecret) {
+      if (shouldEnforceByEnvironment) {
+        return {
+          enforced: true,
+          isValid: false,
+          reason:
+            'MP_WEBHOOK_SECRET nao configurado para validar assinatura do webhook em producao',
+        };
+      }
+
+      return {
+        enforced: false,
+        isValid: null,
+        reason: null,
+      };
+    }
+
+    const signatureHeader = this.readHeaderValue(input.headers, 'x-signature');
+    const requestId = this.readHeaderValue(input.headers, 'x-request-id');
+
+    if (!signatureHeader) {
+      return {
+        enforced: true,
+        isValid: false,
+        reason: 'Header x-signature ausente',
+      };
+    }
+
+    if (!requestId) {
+      return {
+        enforced: true,
+        isValid: false,
+        reason: 'Header x-request-id ausente',
+      };
+    }
+
+    const signatureParts =
+      this.parseMercadoPagoSignatureHeader(signatureHeader);
+
+    if (!signatureParts) {
+      return {
+        enforced: true,
+        isValid: false,
+        reason: 'Header x-signature em formato invalido',
+      };
+    }
+
+    const notificationId =
+      input.paymentId ||
+      input.preapprovalId ||
+      this.readStringField(input.query, ['data.id', 'data_id', 'id']) ||
+      null;
+
+    if (!notificationId) {
+      return {
+        enforced: true,
+        isValid: false,
+        reason:
+          'Nao foi possivel resolver id da notificacao para validar assinatura',
+      };
+    }
+
+    const signatureManifest = `id:${notificationId};request-id:${requestId};ts:${signatureParts.ts};`;
+    const expectedSignature = createHmac('sha256', webhookSecret)
+      .update(signatureManifest)
+      .digest('hex');
+
+    const receivedSignature = signatureParts.v1.toLowerCase();
+
+    if (!/^[a-f0-9]{64}$/.test(receivedSignature)) {
+      return {
+        enforced: true,
+        isValid: false,
+        reason: 'Assinatura recebida fora do padrao hex esperado',
+      };
+    }
+
+    const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+    const receivedBuffer = Buffer.from(receivedSignature, 'hex');
+
+    if (expectedBuffer.length !== receivedBuffer.length) {
+      return {
+        enforced: true,
+        isValid: false,
+        reason: 'Assinatura recebida com tamanho invalido',
+      };
+    }
+
+    const isValid = timingSafeEqual(expectedBuffer, receivedBuffer);
+
+    return {
+      enforced: true,
+      isValid,
+      reason: isValid ? null : 'Assinatura HMAC invalida para o webhook',
+    };
+  }
+
+  private parseMercadoPagoSignatureHeader(
+    signatureHeader: string,
+  ): { ts: string; v1: string } | null {
+    const signatureMap = new Map<string, string>();
+
+    for (const part of signatureHeader.split(',')) {
+      const [key, ...rawValueParts] = part.split('=');
+
+      if (!key || rawValueParts.length === 0) {
+        continue;
+      }
+
+      const normalizedKey = key.trim().toLowerCase();
+      const value = rawValueParts.join('=').trim();
+
+      if (!normalizedKey || !value) {
+        continue;
+      }
+
+      signatureMap.set(normalizedKey, value);
+    }
+
+    const ts = signatureMap.get('ts') ?? '';
+    const v1 = signatureMap.get('v1') ?? '';
+
+    if (!ts || !v1) {
+      return null;
+    }
+
+    return { ts, v1 };
+  }
+
+  private readHeaderValue(
+    headers: Record<string, unknown>,
+    headerName: string,
+  ): string | null {
+    const normalizedTarget = headerName.trim().toLowerCase();
+
+    if (!normalizedTarget) {
+      return null;
+    }
+
+    for (const [key, value] of Object.entries(headers)) {
+      if (key.trim().toLowerCase() !== normalizedTarget) {
+        continue;
+      }
+
+      return this.normalizeAnyToString(value);
+    }
+
+    return null;
+  }
+
   private extractEventType(
     query: Record<string, unknown>,
     body: unknown,
@@ -1967,6 +2170,18 @@ export class PagamentosService {
   }
 
   private normalizeAnyToString(value: unknown): string | null {
+    if (Array.isArray(value) && value.length > 0) {
+      const first = (value as unknown[])[0];
+
+      if (typeof first === 'string' && first.trim().length > 0) {
+        return first.trim();
+      }
+
+      if (typeof first === 'number' && Number.isFinite(first)) {
+        return String(first);
+      }
+    }
+
     if (typeof value === 'string' && value.trim().length > 0) {
       return value.trim();
     }

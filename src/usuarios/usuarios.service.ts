@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -52,7 +53,9 @@ export class UsuariosService {
     private readonly enderecosUsuariosRepository: Repository<EnderecoUsuario>,
   ) {}
 
-  async create(createUsuarioDto: CreateUsuarioDto): Promise<UsuarioSemSenha> {
+  async createPublic(
+    createUsuarioDto: CreateUsuarioDto,
+  ): Promise<UsuarioSemSenha> {
     const nomeNormalizado = this.normalizeUpper(createUsuarioDto.nome);
     const emailNormalizado = this.normalizeUpper(createUsuarioDto.email);
     const enderecoNormalizado = this.normalizeEndereco(
@@ -77,8 +80,8 @@ export class UsuariosService {
           nome: nomeNormalizado,
           email: emailNormalizado,
           senha_hash: senhaHash ?? null,
-          tipo: this.normalizeTipo(createUsuarioDto.tipo),
-          ativo: createUsuarioDto.ativo ?? true,
+          tipo: 'CLIENTE',
+          ativo: true,
         });
         const usuarioSalvo = await manager.save(Usuario, usuario);
 
@@ -98,7 +101,10 @@ export class UsuariosService {
     return this.sanitize(result.usuario, result.endereco);
   }
 
-  async findAll(): Promise<UsuarioSemSenha[]> {
+  async findAll(requesterUserId: string): Promise<UsuarioSemSenha[]> {
+    const requester = await this.findActiveUserOrFail(requesterUserId);
+    this.assertAdminUser(requester);
+
     const usuarios = await this.usuariosRepository.find({
       order: { id: 'ASC' },
     });
@@ -111,8 +117,11 @@ export class UsuariosService {
     );
   }
 
-  async findOne(id: string): Promise<UsuarioSemSenha> {
+  async findOne(id: string, requesterUserId: string): Promise<UsuarioSemSenha> {
+    const requester = await this.findActiveUserOrFail(requesterUserId);
     const usuario = await this.findOneOrFail(id);
+    this.assertCanAccessTargetUser(requester, usuario);
+
     const endereco = await this.enderecosUsuariosRepository.findOne({
       where: { usuario_id: usuario.id },
     });
@@ -123,8 +132,32 @@ export class UsuariosService {
   async update(
     id: string,
     updateUsuarioDto: UpdateUsuarioDto,
+    requesterUserId: string,
   ): Promise<UsuarioSemSenha> {
+    const requester = await this.findActiveUserOrFail(requesterUserId);
     const usuario = await this.findOneOrFail(id);
+    const isAdmin = this.isAdminUser(requester);
+    const isSelf = requester.id === usuario.id;
+
+    if (!isAdmin && !isSelf) {
+      throw new ForbiddenException(
+        'Voce nao tem permissao para alterar este usuario',
+      );
+    }
+
+    if (!isAdmin) {
+      if (updateUsuarioDto.tipo !== undefined) {
+        throw new ForbiddenException(
+          'Somente administradores podem alterar tipo de usuario',
+        );
+      }
+
+      if (updateUsuarioDto.ativo !== undefined) {
+        throw new ForbiddenException(
+          'Somente administradores podem alterar status de ativacao',
+        );
+      }
+    }
 
     if (updateUsuarioDto.email && updateUsuarioDto.email !== usuario.email) {
       const emailNormalizado = this.normalizeUpper(updateUsuarioDto.email);
@@ -165,7 +198,13 @@ export class UsuariosService {
     return this.sanitize(usuarioAtualizado, endereco);
   }
 
-  async remove(id: string): Promise<{ message: string }> {
+  async remove(
+    id: string,
+    requesterUserId: string,
+  ): Promise<{ message: string }> {
+    const requester = await this.findActiveUserOrFail(requesterUserId);
+    this.assertAdminUser(requester);
+
     const usuario = await this.findOneOrFail(id);
     await this.usuariosRepository.remove(usuario);
 
@@ -180,6 +219,37 @@ export class UsuariosService {
     }
 
     return usuario;
+  }
+
+  private async findActiveUserOrFail(id: string): Promise<Usuario> {
+    const usuario = await this.findOneOrFail(id);
+
+    if (!usuario.ativo) {
+      throw new ForbiddenException('Usuario inativo');
+    }
+
+    return usuario;
+  }
+
+  private assertCanAccessTargetUser(requester: Usuario, target: Usuario): void {
+    if (requester.id === target.id) {
+      return;
+    }
+
+    this.assertAdminUser(requester);
+  }
+
+  private assertAdminUser(usuario: Usuario): void {
+    if (!this.isAdminUser(usuario)) {
+      throw new ForbiddenException('Acesso permitido apenas para admin');
+    }
+  }
+
+  private isAdminUser(usuario: Usuario): boolean {
+    const tipoNormalizado =
+      typeof usuario.tipo === 'string' ? usuario.tipo.trim().toUpperCase() : '';
+
+    return usuario.ativo && tipoNormalizado === 'ADM';
   }
 
   private async findEnderecosPorUsuarioIds(

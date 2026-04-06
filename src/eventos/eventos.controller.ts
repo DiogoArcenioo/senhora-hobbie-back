@@ -46,6 +46,7 @@ export class EventosController {
       {
         limits: {
           files: 61,
+          fileSize: 25 * 1024 * 1024,
         },
       },
     ),
