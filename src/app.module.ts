@@ -11,6 +11,7 @@ import { EventosModule } from './eventos/eventos.module';
 import { ImagensModule } from './imagens/imagens.module';
 import { PagamentosModule } from './pagamentos/pagamentos.module';
 import { PlanosModule } from './planos/planos.module';
+import { ProdutosModule } from './produtos/produtos.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 
 @Module({
@@ -61,6 +62,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
     ImagensModule,
     PagamentosModule,
     PlanosModule,
+    ProdutosModule,
     UsuariosModule,
   ],
   controllers: [AppController],

@@ -11,6 +11,7 @@ import { Request } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
 import { ConfirmarPagamentoDto } from './dto/confirmar-pagamento.dto';
 import { CreateCheckoutProDto } from './dto/create-checkout-pro.dto';
+import { CreateProductCheckoutDto } from './dto/create-product-checkout.dto';
 import { PagamentosService } from './pagamentos.service';
 
 type AuthenticatedRequest = Request & {
@@ -69,6 +70,31 @@ export class PagamentosController {
 
     return this.pagamentosService.createAssociatedPlanSubscription({
       planoId,
+      userId,
+      userEmail,
+    });
+  }
+
+  @Post('produtos/checkout-pro')
+  createProductCheckout(
+    @Body() body: CreateProductCheckoutDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const produtoId =
+      typeof body?.produtoId === 'string' ? body.produtoId.trim() : '';
+    const userId = typeof req.user?.userId === 'string' ? req.user.userId : '';
+    const userEmail = typeof req.user?.email === 'string' ? req.user.email : '';
+
+    if (!produtoId) {
+      throw new BadRequestException('produtoId e obrigatorio');
+    }
+
+    if (!userId || !userEmail) {
+      throw new BadRequestException('Usuario autenticado invalido');
+    }
+
+    return this.pagamentosService.createProductCheckoutPro({
+      produtoId,
       userId,
       userEmail,
     });

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlanosModule } from '../planos/planos.module';
+import { Produto } from '../produtos/entities/produto.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { AssinaturasGestaoController } from './assinaturas-gestao.controller';
 import { AssinaturasGestaoService } from './assinaturas-gestao.service';
@@ -20,6 +21,7 @@ import { PagamentosService } from './pagamentos.service';
       WebhookPagamento,
       LogPagamento,
       Usuario,
+      Produto,
     ]),
   ],
   controllers: [PagamentosController, AssinaturasGestaoController],

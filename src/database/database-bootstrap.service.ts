@@ -141,8 +141,57 @@ export class DatabaseBootstrapService implements OnModuleInit {
           on public.evento_imagens (evento_id, ordem, id)
       `);
 
+      await this.dataSource.query(`
+        create table if not exists public.produtos (
+          id bigserial primary key,
+          criado_por_usuario_id bigint not null references public.usuarios(id),
+          nome varchar(180) not null,
+          slug varchar(220) not null unique,
+          descricao text,
+          preco numeric not null,
+          moeda varchar(10) not null default 'BRL',
+          capa_imagem_id bigint references public.imagens(id) on delete set null,
+          ativo boolean not null default true,
+          created_at timestamp with time zone default now(),
+          updated_at timestamp with time zone default now()
+        )
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_produtos_ativo_created
+          on public.produtos (ativo, created_at desc)
+      `);
+
+      await this.dataSource.query(`
+        create table if not exists public.produto_imagens (
+          id bigserial primary key,
+          produto_id bigint not null references public.produtos(id) on delete cascade,
+          imagem_id bigint not null references public.imagens(id) on delete restrict,
+          ordem integer not null default 0 check (ordem >= 0),
+          legenda text,
+          destaque boolean not null default false,
+          created_at timestamp with time zone default now(),
+          unique (produto_id, imagem_id)
+        )
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_produto_imagens_produto_ordem
+          on public.produto_imagens (produto_id, ordem, id)
+      `);
+
+      await this.dataSource.query(`
+        alter table if exists public.pagamentos
+          alter column assinatura_id drop not null
+      `);
+
+      await this.dataSource.query(`
+        alter table if exists public.pagamentos
+          alter column plano_id drop not null
+      `);
+
       this.logger.log(
-        'Schema minimo de usuarios, imagens, slider home e eventos verificado com sucesso',
+        'Schema minimo de usuarios, imagens, slider home, eventos, produtos e pagamentos verificado com sucesso',
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

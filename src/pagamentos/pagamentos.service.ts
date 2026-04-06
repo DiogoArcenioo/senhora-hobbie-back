@@ -1,4 +1,4 @@
-﻿import {
+import {
   BadGatewayException,
   BadRequestException,
   Injectable,
@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 import { Plano } from '../planos/entities/plano.entity';
 import { PlanosService } from '../planos/planos.service';
+import { Produto } from '../produtos/entities/produto.entity';
 import { Assinatura } from './entities/assinatura.entity';
 import { LogPagamento } from './entities/log-pagamento.entity';
 import { Pagamento } from './entities/pagamento.entity';
@@ -89,6 +90,7 @@ type ParsedReference = {
   pagamentoId?: string;
   userId?: string;
   planoId?: string;
+  produtoId?: string;
   preferenceId?: string;
 };
 
@@ -110,6 +112,8 @@ export class PagamentosService {
   constructor(
     private readonly configService: ConfigService,
     private readonly planosService: PlanosService,
+    @InjectRepository(Produto)
+    private readonly produtosRepository: Repository<Produto>,
     @InjectRepository(Assinatura)
     private readonly assinaturasRepository: Repository<Assinatura>,
     @InjectRepository(Pagamento)
@@ -317,6 +321,196 @@ export class PagamentosService {
         assinaturaId: assinatura.id,
         pagamentoId: pagamento.id,
         detalhes: {
+          erro: pagamento.motivo_recusa,
+        },
+      });
+
+      throw error;
+    }
+  }
+
+  async createProductCheckoutPro(dto: {
+    produtoId: string;
+    userId: string;
+    userEmail: string;
+  }) {
+    const produto = await this.produtosRepository.findOne({
+      where: { id: dto.produtoId },
+    });
+
+    if (!produto) {
+      throw new BadRequestException('Produto nao encontrado');
+    }
+
+    if (!produto.ativo) {
+      throw new BadRequestException('Produto inativo');
+    }
+
+    const accessToken = this.getMercadoPagoAccessToken();
+    const unitPrice = Number(produto.preco);
+
+    if (Number.isNaN(unitPrice) || unitPrice <= 0) {
+      throw new InternalServerErrorException(
+        'Valor do produto invalido para checkout',
+      );
+    }
+
+    let pagamento = await this.pagamentosRepository.save(
+      this.pagamentosRepository.create({
+        assinatura_id: null,
+        usuario_id: dto.userId,
+        plano_id: null,
+        gateway: 'MERCADO_PAGO',
+        gateway_pagamento_id: null,
+        gateway_preferencia_id: null,
+        gateway_checkout_id: null,
+        status: 'PENDING',
+        valor:
+          typeof produto.preco === 'string'
+            ? produto.preco
+            : String(produto.preco),
+        moeda: (produto.moeda || 'BRL').toUpperCase(),
+        forma_pagamento: null,
+        parcelas: null,
+        descricao: `Produto ${produto.nome}`,
+        motivo_recusa: null,
+        detalhes_gateway: {
+          etapa: 'product_preference_requested',
+          produtoId: produto.id,
+        },
+        data_pagamento: null,
+        data_vencimento: null,
+      }),
+    );
+
+    const externalReference = this.buildProductExternalReference({
+      pagamentoId: pagamento.id,
+      userId: dto.userId,
+      produtoId: produto.id,
+    });
+
+    try {
+      const frontendUrl = this.getFrontendUrl();
+      const webhookUrl = this.getWebhookUrl();
+
+      const payload = {
+        items: [
+          {
+            id: produto.id,
+            title: produto.nome,
+            description: produto.descricao ?? undefined,
+            quantity: 1,
+            unit_price: unitPrice,
+            currency_id: this.normalizeCurrencyForMercadoPago(produto.moeda),
+          },
+        ],
+        payer: {
+          email: dto.userEmail,
+        },
+        external_reference: externalReference,
+        metadata: {
+          userId: dto.userId,
+          pagamentoId: pagamento.id,
+          produtoId: produto.id,
+        },
+        back_urls: {
+          success: `${frontendUrl}/produtos/checkout/resultado?status=success`,
+          failure: `${frontendUrl}/produtos/checkout/resultado?status=failure`,
+          pending: `${frontendUrl}/produtos/checkout/resultado?status=pending`,
+        },
+        auto_return: 'approved',
+        notification_url: webhookUrl,
+      };
+
+      const response = await fetch(
+        'https://api.mercadopago.com/checkout/preferences',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Idempotency-Key': randomUUID(),
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const responsePayload = (await response
+        .json()
+        .catch(() => null)) as MercadoPagoPreferenceResponse | null;
+
+      if (!response.ok) {
+        throw new BadGatewayException(
+          this.resolveMercadoPagoError(
+            responsePayload,
+            'Nao foi possivel criar o checkout do produto no Mercado Pago',
+          ),
+        );
+      }
+
+      const checkoutUrl =
+        (typeof responsePayload?.init_point === 'string' &&
+          responsePayload.init_point) ||
+        (typeof responsePayload?.sandbox_init_point === 'string' &&
+          responsePayload.sandbox_init_point) ||
+        '';
+
+      if (!checkoutUrl) {
+        throw new BadGatewayException(
+          'Mercado Pago nao retornou URL de checkout',
+        );
+      }
+
+      pagamento.gateway_preferencia_id = responsePayload?.id ?? null;
+      pagamento.gateway_checkout_id = responsePayload?.id ?? null;
+      pagamento.detalhes_gateway = {
+        ...(pagamento.detalhes_gateway ?? {}),
+        etapa: 'product_preference_created',
+        preference_id: responsePayload?.id ?? null,
+        produtoId: produto.id,
+      };
+      pagamento = await this.pagamentosRepository.save(pagamento);
+
+      await this.createLog({
+        nivel: 'INFO',
+        evento: 'CHECKOUT_PRODUTO_CRIADO',
+        descricao: `Checkout de produto criado para pagamento ${pagamento.id}`,
+        usuarioId: dto.userId,
+        pagamentoId: pagamento.id,
+        detalhes: {
+          produtoId: produto.id,
+          preferenceId: responsePayload?.id ?? null,
+        },
+      });
+
+      return {
+        preference_id: responsePayload?.id ?? null,
+        checkout_url: checkoutUrl,
+        pagamento_id: pagamento.id,
+        produto_id: produto.id,
+      };
+    } catch (error) {
+      pagamento.status = 'FAILED';
+      pagamento.motivo_recusa = this.normalizeErrorMessage(
+        error,
+        'Falha ao criar checkout de produto no Mercado Pago',
+      );
+      pagamento.detalhes_gateway = {
+        ...(pagamento.detalhes_gateway ?? {}),
+        etapa: 'product_preference_error',
+        erro: pagamento.motivo_recusa,
+        produtoId: produto.id,
+      };
+      await this.pagamentosRepository.save(pagamento);
+
+      await this.createLog({
+        nivel: 'ERROR',
+        evento: 'CHECKOUT_PRODUTO_ERRO',
+        descricao: `Falha ao criar checkout de produto para pagamento ${pagamento.id}`,
+        usuarioId: dto.userId,
+        pagamentoId: pagamento.id,
+        detalhes: {
+          produtoId: produto.id,
           erro: pagamento.motivo_recusa,
         },
       });
@@ -832,6 +1026,7 @@ export class PagamentosService {
       pagamentoId: parsedReference.pagamentoId ?? parsedMetadata.pagamentoId,
       userId: parsedReference.userId ?? parsedMetadata.userId,
       planoId: parsedReference.planoId ?? parsedMetadata.planoId,
+      produtoId: parsedReference.produtoId ?? parsedMetadata.produtoId,
       preferenceId: parsedReference.preferenceId ?? parsedMetadata.preferenceId,
     };
 
@@ -866,13 +1061,13 @@ export class PagamentosService {
         );
       }
 
-      if (!resolved.planoId) {
+      if (!resolved.planoId && !resolved.produtoId) {
         throw new BadRequestException(
-          'Webhook sem planoId para criar registro de pagamento',
+          'Webhook sem planoId/produtoId para criar registro de pagamento',
         );
       }
 
-      if (!assinatura) {
+      if (!assinatura && resolved.planoId) {
         assinatura = await this.assinaturasRepository.save(
           this.assinaturasRepository.create({
             usuario_id: resolved.userId,
@@ -893,9 +1088,9 @@ export class PagamentosService {
 
       pagamento = await this.pagamentosRepository.save(
         this.pagamentosRepository.create({
-          assinatura_id: assinatura.id,
+          assinatura_id: assinatura?.id ?? null,
           usuario_id: resolved.userId,
-          plano_id: resolved.planoId,
+          plano_id: resolved.planoId ?? null,
           gateway: 'MERCADO_PAGO',
           gateway_pagamento_id: null,
           gateway_preferencia_id: resolved.preferenceId ?? null,
@@ -907,7 +1102,11 @@ export class PagamentosService {
           parcelas: null,
           descricao: mpPayment.description ?? 'Pagamento Mercado Pago',
           motivo_recusa: null,
-          detalhes_gateway: null,
+          detalhes_gateway: resolved.produtoId
+            ? {
+                produtoId: resolved.produtoId,
+              }
+            : null,
           data_pagamento: null,
           data_vencimento: null,
         }),
@@ -947,6 +1146,9 @@ export class PagamentosService {
       this.parseDate(mpPayment.date_approved) ?? pagamento.data_pagamento;
     pagamento.data_vencimento =
       this.parseDate(mpPayment.date_of_expiration) ?? pagamento.data_vencimento;
+    const produtoIdAnterior =
+      this.normalizeAnyToString(pagamento.detalhes_gateway?.produtoId) ?? null;
+
     pagamento.detalhes_gateway = {
       ...(pagamento.detalhes_gateway ?? {}),
       sync_trigger: context.trigger,
@@ -955,6 +1157,7 @@ export class PagamentosService {
       mp_status: mpPayment.status ?? null,
       mp_status_detail: mpPayment.status_detail ?? null,
       webhook_id: context.webhookId ?? null,
+      produtoId: resolved.produtoId ?? produtoIdAnterior,
     };
 
     if (!pagamento.usuario_id && resolved.userId) {
@@ -1439,6 +1642,7 @@ export class PagamentosService {
         'usuarioId',
       ]),
       planoId: this.readStringField(source, ['planoId', 'plano_id']),
+      produtoId: this.readStringField(source, ['produtoId', 'produto_id']),
       preferenceId: this.readStringField(source, [
         'preferenceId',
         'preference_id',
@@ -1477,6 +1681,8 @@ export class PagamentosService {
         parsed.userId = value;
       } else if (key === 'pln') {
         parsed.planoId = value;
+      } else if (key === 'prd') {
+        parsed.produtoId = value;
       } else if (key === 'pref') {
         parsed.preferenceId = value;
       }
@@ -1492,6 +1698,14 @@ export class PagamentosService {
     planoId: string;
   }): string {
     return `ass:${reference.assinaturaId}|pag:${reference.pagamentoId}|usr:${reference.userId}|pln:${reference.planoId}`;
+  }
+
+  private buildProductExternalReference(reference: {
+    pagamentoId: string;
+    userId: string;
+    produtoId: string;
+  }): string {
+    return `pag:${reference.pagamentoId}|usr:${reference.userId}|prd:${reference.produtoId}`;
   }
 
   private extractEventType(
