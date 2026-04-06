@@ -11,6 +11,8 @@ import { Pagamento } from './entities/pagamento.entity';
 import { WebhookPagamento } from './entities/webhook-pagamento.entity';
 import { PagamentosController } from './pagamentos.controller';
 import { PagamentosService } from './pagamentos.service';
+import { VendasGestaoController } from './vendas-gestao.controller';
+import { VendasGestaoService } from './vendas-gestao.service';
 
 @Module({
   imports: [
@@ -24,7 +26,11 @@ import { PagamentosService } from './pagamentos.service';
       Produto,
     ]),
   ],
-  controllers: [PagamentosController, AssinaturasGestaoController],
-  providers: [PagamentosService, AssinaturasGestaoService],
+  controllers: [
+    PagamentosController,
+    AssinaturasGestaoController,
+    VendasGestaoController,
+  ],
+  providers: [PagamentosService, AssinaturasGestaoService, VendasGestaoService],
 })
 export class PagamentosModule {}
