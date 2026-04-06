@@ -1,13 +1,19 @@
 import {
+  Body,
   Controller,
   Get,
   Post,
+  Put,
   Req,
   UnauthorizedException,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+} from '@nestjs/platform-express';
 import { Request } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
 import { ImagensService } from './imagens.service';
@@ -57,6 +63,50 @@ export class ImagensController {
 
     return {
       imagem,
+    };
+  }
+
+  @Public()
+  @Get('home-slider')
+  async obterHomeSlider() {
+    const slides = await this.imagensService.obterSlidesHome();
+
+    return {
+      slides,
+    };
+  }
+
+  @Put('home-slider')
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: 'fotos', maxCount: 4 }], {
+      limits: {
+        files: 4,
+        fileSize: 25 * 1024 * 1024,
+      },
+    }),
+  )
+  async atualizarHomeSlider(
+    @Req() request: RequestComUsuario,
+    @Body() body: Record<string, string | string[] | undefined>,
+    @UploadedFiles()
+    files: {
+      fotos?: Express.Multer.File[];
+    },
+  ) {
+    const usuarioId = request.user?.userId;
+
+    if (!usuarioId) {
+      throw new UnauthorizedException('Usuario nao autenticado');
+    }
+
+    const slides = await this.imagensService.atualizarSlidesHome(
+      usuarioId,
+      body,
+      files.fotos ?? [],
+    );
+
+    return {
+      slides,
     };
   }
 }

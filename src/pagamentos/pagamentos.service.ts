@@ -527,7 +527,9 @@ export class PagamentosService {
       }
 
       const preapprovalId =
-        typeof preapprovalData?.id === 'string' ? preapprovalData.id.trim() : '';
+        typeof preapprovalData?.id === 'string'
+          ? preapprovalData.id.trim()
+          : '';
       const checkoutUrl =
         typeof preapprovalData?.init_point === 'string'
           ? preapprovalData.init_point.trim()
@@ -660,10 +662,7 @@ export class PagamentosService {
     };
   }
 
-  async confirmMercadoPagoSubscription(
-    preapprovalId: string,
-    userId: string,
-  ) {
+  async confirmMercadoPagoSubscription(preapprovalId: string, userId: string) {
     const gatewaySubscriptionId = preapprovalId.trim();
 
     if (!gatewaySubscriptionId) {
@@ -1047,8 +1046,9 @@ export class PagamentosService {
     gatewaySubscriptionId: string,
     context: { trigger: 'webhook' | 'manual'; webhookId?: string },
   ): Promise<SyncResult> {
-    const mpSubscription =
-      await this.fetchMercadoPagoSubscription(gatewaySubscriptionId);
+    const mpSubscription = await this.fetchMercadoPagoSubscription(
+      gatewaySubscriptionId,
+    );
     const parsedReference = this.parseExternalReference(
       mpSubscription.external_reference,
     );
@@ -1198,7 +1198,7 @@ export class PagamentosService {
     pagamento.descricao = mpSubscription.reason ?? pagamento.descricao;
     pagamento.forma_pagamento = 'subscription';
     pagamento.motivo_recusa = statusMap.isCancelled
-      ? mpSubscription.status ?? pagamento.motivo_recusa
+      ? (mpSubscription.status ?? pagamento.motivo_recusa)
       : null;
     pagamento.data_pagamento = statusMap.isActive
       ? (pagamento.data_pagamento ?? assinatura.data_inicio ?? new Date())
@@ -1675,7 +1675,11 @@ export class PagamentosService {
 
     let repetitions: number | undefined;
 
-    if (frequencyType === 'months' && plano.duracao_meses && plano.duracao_meses > 0) {
+    if (
+      frequencyType === 'months' &&
+      plano.duracao_meses &&
+      plano.duracao_meses > 0
+    ) {
       repetitions = Math.max(1, Math.floor(plano.duracao_meses / frequency));
     } else if (
       frequencyType === 'days' &&

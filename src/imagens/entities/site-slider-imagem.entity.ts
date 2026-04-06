@@ -10,22 +10,25 @@ import {
 } from 'typeorm';
 import { Imagem } from './imagem.entity';
 
-@Entity('site_imagens')
-@Unique('uq_site_imagens_chave', ['chave'])
-export class SiteImagem {
+@Entity('site_slider_imagens')
+@Unique('uq_site_slider_imagens_ordem', ['ordem'])
+export class SiteSliderImagem {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id!: string;
 
-  @Column({ type: 'varchar', length: 80 })
-  chave!: string;
+  @Column({ type: 'integer', default: 0 })
+  ordem!: number;
+
+  @Column({ type: 'varchar', length: 180, nullable: true })
+  texto_alternativo!: string | null;
 
   @ManyToOne(() => Imagem, {
-    nullable: true,
     eager: true,
-    onDelete: 'SET NULL',
+    nullable: false,
+    onDelete: 'RESTRICT',
   })
   @JoinColumn({ name: 'imagem_id' })
-  imagem!: Imagem | null;
+  imagem!: Imagem;
 
   @CreateDateColumn({
     type: 'timestamp with time zone',

@@ -41,7 +41,11 @@ export class Evento {
   @Column({ type: 'timestamp with time zone', nullable: true })
   fim_em!: Date | null;
 
-  @ManyToOne(() => Imagem, { nullable: true, eager: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => Imagem, {
+    nullable: true,
+    eager: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'capa_imagem_id' })
   capa_imagem!: Imagem | null;
 
@@ -51,9 +55,15 @@ export class Evento {
   @Column({ type: 'boolean', default: true })
   ativo!: boolean;
 
-  @CreateDateColumn({ type: 'timestamp with time zone', default: () => 'NOW()' })
+  @CreateDateColumn({
+    type: 'timestamp with time zone',
+    default: () => 'NOW()',
+  })
   created_at!: Date;
 
-  @UpdateDateColumn({ type: 'timestamp with time zone', default: () => 'NOW()' })
+  @UpdateDateColumn({
+    type: 'timestamp with time zone',
+    default: () => 'NOW()',
+  })
   updated_at!: Date;
 }

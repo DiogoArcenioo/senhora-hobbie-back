@@ -37,6 +37,9 @@ export class EventoImagem {
   @Column({ type: 'boolean', default: false })
   destaque!: boolean;
 
-  @CreateDateColumn({ type: 'timestamp with time zone', default: () => 'NOW()' })
+  @CreateDateColumn({
+    type: 'timestamp with time zone',
+    default: () => 'NOW()',
+  })
   created_at!: Date;
 }

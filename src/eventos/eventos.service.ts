@@ -73,8 +73,10 @@ export class EventosService {
     private readonly configService: ConfigService,
   ) {
     this.storageBucket =
-      this.configService.get<string>('SUPABASE_STORAGE_BUCKET', 'user-images') ??
-      'user-images';
+      this.configService.get<string>(
+        'SUPABASE_STORAGE_BUCKET',
+        'user-images',
+      ) ?? 'user-images';
   }
 
   async listarEventosPublicos(): Promise<{
@@ -102,7 +104,9 @@ export class EventosService {
       .getMany();
 
     return {
-      proximoEvento: proximoEvento ? this.toEventoResumoPublico(proximoEvento) : null,
+      proximoEvento: proximoEvento
+        ? this.toEventoResumoPublico(proximoEvento)
+        : null,
       eventosPassados: eventosPassados.map((evento) =>
         this.toEventoResumoPublico(evento),
       ),
@@ -184,10 +188,14 @@ export class EventosService {
       'Resumo do evento obrigatorio',
     );
     const inicioEm = this.parseDate(body.inicio_em, 'Data de inicio invalida');
-    const fimEm = body.fim_em ? this.parseDate(body.fim_em, 'Data de fim invalida') : null;
+    const fimEm = body.fim_em
+      ? this.parseDate(body.fim_em, 'Data de fim invalida')
+      : null;
 
     if (fimEm && fimEm.getTime() < inicioEm.getTime()) {
-      throw new BadRequestException('Data de fim nao pode ser anterior ao inicio');
+      throw new BadRequestException(
+        'Data de fim nao pode ser anterior ao inicio',
+      );
     }
 
     const capaArquivo = arquivos.capa?.[0];
@@ -257,7 +265,9 @@ export class EventosService {
     });
 
     if (!usuario || !usuario.ativo || usuario.tipo !== 'ADM') {
-      throw new ForbiddenException('Somente administradores podem cadastrar eventos');
+      throw new ForbiddenException(
+        'Somente administradores podem cadastrar eventos',
+      );
     }
   }
 
@@ -292,7 +302,9 @@ export class EventosService {
     pasta: string;
     descricao: string;
   }): Promise<Imagem> {
-    const nomeArquivoSeguro = this.sanitizeFilename(params.arquivo.originalname || 'imagem');
+    const nomeArquivoSeguro = this.sanitizeFilename(
+      params.arquivo.originalname || 'imagem',
+    );
     const caminho = `${params.pasta}/${Date.now()}-${nomeArquivoSeguro}`;
     const supabaseClient = this.getSupabaseClient();
 
@@ -418,7 +430,11 @@ export class EventosService {
 
     const normalized = status.trim().toUpperCase();
 
-    if (normalized !== 'RASCUNHO' && normalized !== 'PUBLICADO' && normalized !== 'CANCELADO') {
+    if (
+      normalized !== 'RASCUNHO' &&
+      normalized !== 'PUBLICADO' &&
+      normalized !== 'CANCELADO'
+    ) {
       throw new BadRequestException('Status do evento invalido');
     }
 
@@ -427,7 +443,9 @@ export class EventosService {
 
   private sanitizeFilename(filename: string): string {
     const trimmed = filename.trim().toLowerCase();
-    const normalized = trimmed.replace(/\s+/g, '-').replace(/[^a-z0-9._-]/g, '');
+    const normalized = trimmed
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9._-]/g, '');
 
     if (!normalized) {
       return 'imagem.jpg';

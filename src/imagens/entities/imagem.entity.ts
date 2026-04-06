@@ -38,9 +38,15 @@ export class Imagem {
   @Column({ type: 'boolean', default: true })
   ativo!: boolean;
 
-  @CreateDateColumn({ type: 'timestamp with time zone', default: () => 'NOW()' })
+  @CreateDateColumn({
+    type: 'timestamp with time zone',
+    default: () => 'NOW()',
+  })
   created_at!: Date;
 
-  @UpdateDateColumn({ type: 'timestamp with time zone', default: () => 'NOW()' })
+  @UpdateDateColumn({
+    type: 'timestamp with time zone',
+    default: () => 'NOW()',
+  })
   updated_at!: Date;
 }
