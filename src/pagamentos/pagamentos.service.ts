@@ -11,10 +11,12 @@ import { Repository } from 'typeorm';
 import { Plano } from '../planos/entities/plano.entity';
 import { PlanosService } from '../planos/planos.service';
 import { Produto } from '../produtos/entities/produto.entity';
+import { EnderecoUsuario } from '../usuarios/entities/endereco-usuario.entity';
 import { Assinatura } from './entities/assinatura.entity';
 import { LogPagamento } from './entities/log-pagamento.entity';
 import { Pagamento } from './entities/pagamento.entity';
 import { WebhookPagamento } from './entities/webhook-pagamento.entity';
+import { VendasProdutosService } from './vendas-produtos.service';
 
 type MercadoPagoPreferenceResponse = {
   id?: string;
@@ -118,6 +120,7 @@ export class PagamentosService {
   constructor(
     private readonly configService: ConfigService,
     private readonly planosService: PlanosService,
+    private readonly vendasProdutosService: VendasProdutosService,
     @InjectRepository(Produto)
     private readonly produtosRepository: Repository<Produto>,
     @InjectRepository(Assinatura)
@@ -128,6 +131,8 @@ export class PagamentosService {
     private readonly webhooksRepository: Repository<WebhookPagamento>,
     @InjectRepository(LogPagamento)
     private readonly logsRepository: Repository<LogPagamento>,
+    @InjectRepository(EnderecoUsuario)
+    private readonly enderecosRepository: Repository<EnderecoUsuario>,
   ) {}
 
   async createCheckoutPro(dto: {
@@ -350,6 +355,16 @@ export class PagamentosService {
 
     if (!produto.ativo) {
       throw new BadRequestException('Produto inativo');
+    }
+
+    const endereco = await this.enderecosRepository.findOne({
+      where: { usuario_id: dto.userId },
+    });
+
+    if (!endereco) {
+      throw new BadRequestException(
+        'Cadastre seu endereco de entrega antes de comprar',
+      );
     }
 
     const accessToken = this.getMercadoPagoAccessToken();
@@ -1260,6 +1275,51 @@ export class PagamentosService {
 
       assinatura.observacoes = `Atualizado via Mercado Pago: ${statusMap.originalStatus}`;
       assinatura = await this.assinaturasRepository.save(assinatura);
+    }
+
+    const produtoIdParaVenda =
+      resolved.produtoId ??
+      this.normalizeAnyToString(pagamento.detalhes_gateway?.produtoId);
+
+    if (statusMap.isApproved && produtoIdParaVenda) {
+      try {
+        const venda = await this.vendasProdutosService.ensureVendaRegistered(
+          pagamento,
+          produtoIdParaVenda,
+        );
+
+        if (venda) {
+          await this.createLog({
+            nivel: 'INFO',
+            evento: 'VENDA_PRODUTO_REGISTRADA',
+            descricao: `Venda ${venda.id} registrada para pagamento ${pagamento.id}`,
+            usuarioId: pagamento.usuario_id,
+            pagamentoId: pagamento.id,
+            webhookId: context.webhookId ?? null,
+            detalhes: {
+              vendaId: venda.id,
+              produtoId: produtoIdParaVenda,
+              statusEnvio: venda.status_envio,
+            },
+          });
+        }
+      } catch (error) {
+        await this.createLog({
+          nivel: 'ERROR',
+          evento: 'VENDA_PRODUTO_ERRO',
+          descricao: `Falha ao registrar venda do pagamento ${pagamento.id}`,
+          usuarioId: pagamento.usuario_id,
+          pagamentoId: pagamento.id,
+          webhookId: context.webhookId ?? null,
+          detalhes: {
+            produtoId: produtoIdParaVenda,
+            erro: this.normalizeErrorMessage(
+              error,
+              'Falha ao registrar venda',
+            ),
+          },
+        });
+      }
     }
 
     await this.createLog({

@@ -215,8 +215,55 @@ export class DatabaseBootstrapService implements OnModuleInit {
           alter column plano_id drop not null
       `);
 
+      await this.dataSource.query(`
+        create table if not exists public.vendas_produtos (
+          id bigserial primary key,
+          pagamento_id bigint not null,
+          usuario_id bigint not null references public.usuarios(id),
+          produto_id bigint not null references public.produtos(id),
+          produto_nome varchar(180) not null,
+          valor numeric(12,2) not null,
+          moeda varchar(10) not null default 'BRL',
+          status_envio varchar(30) not null default 'PENDENTE_ENVIO',
+          endereco_logradouro varchar(180) not null,
+          endereco_numero varchar(40) not null,
+          endereco_complemento varchar(150),
+          endereco_bairro varchar(120) not null,
+          endereco_cidade varchar(120) not null,
+          endereco_estado varchar(2) not null,
+          endereco_cep varchar(20) not null,
+          codigo_rastreio varchar(120),
+          observacoes text,
+          data_pagamento timestamp with time zone,
+          enviado_em timestamp with time zone,
+          entregue_em timestamp with time zone,
+          created_at timestamp with time zone not null default now(),
+          updated_at timestamp with time zone not null default now(),
+          constraint uq_vendas_produtos_pagamento unique (pagamento_id),
+          constraint fk_vendas_produtos_pagamento
+            foreign key (pagamento_id)
+            references public.pagamentos (id)
+            on delete cascade
+        )
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_vendas_produtos_usuario
+          on public.vendas_produtos (usuario_id)
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_vendas_produtos_status
+          on public.vendas_produtos (status_envio)
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_vendas_produtos_created_at
+          on public.vendas_produtos (created_at desc)
+      `);
+
       this.logger.log(
-        'Schema minimo de usuarios, enderecos, imagens, slider home, eventos, produtos e pagamentos verificado com sucesso',
+        'Schema minimo de usuarios, enderecos, imagens, slider home, eventos, produtos, pagamentos e vendas_produtos verificado com sucesso',
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

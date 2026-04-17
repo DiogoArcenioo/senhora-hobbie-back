@@ -6,12 +6,15 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Req,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
+import { VendasProdutosService } from '../pagamentos/vendas-produtos.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
+import { EnderecoUsuarioDto } from './dto/endereco-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UsuariosService } from './usuarios.service';
 
@@ -23,7 +26,10 @@ type AuthenticatedRequest = Request & {
 
 @Controller('usuarios')
 export class UsuariosController {
-  constructor(private readonly usuariosService: UsuariosService) {}
+  constructor(
+    private readonly usuariosService: UsuariosService,
+    private readonly vendasProdutosService: VendasProdutosService,
+  ) {}
 
   @Public()
   @Post()
@@ -34,6 +40,31 @@ export class UsuariosController {
   @Get()
   findAll(@Req() req: AuthenticatedRequest) {
     return this.usuariosService.findAll(this.getAuthenticatedUserId(req));
+  }
+
+  @Get('me/endereco')
+  getMeuEndereco(@Req() req: AuthenticatedRequest) {
+    return this.usuariosService.getMeuEndereco(
+      this.getAuthenticatedUserId(req),
+    );
+  }
+
+  @Put('me/endereco')
+  atualizarMeuEndereco(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: EnderecoUsuarioDto,
+  ) {
+    return this.usuariosService.atualizarMeuEndereco(
+      this.getAuthenticatedUserId(req),
+      dto,
+    );
+  }
+
+  @Get('me/compras')
+  getMinhasCompras(@Req() req: AuthenticatedRequest) {
+    return this.vendasProdutosService.listarMinhasCompras(
+      this.getAuthenticatedUserId(req),
+    );
   }
 
   @Get(':id')

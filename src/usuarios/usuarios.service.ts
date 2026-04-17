@@ -211,6 +211,62 @@ export class UsuariosService {
     return { message: 'Usuario removido com sucesso' };
   }
 
+  async getMeuEndereco(
+    userId: string,
+  ): Promise<EnderecoUsuarioPublico | null> {
+    await this.findActiveUserOrFail(userId);
+
+    const endereco = await this.enderecosUsuariosRepository.findOne({
+      where: { usuario_id: userId },
+    });
+
+    return this.sanitizeEndereco(endereco);
+  }
+
+  async atualizarMeuEndereco(
+    userId: string,
+    dto: CreateEnderecoUsuarioDto,
+  ): Promise<EnderecoUsuarioPublico> {
+    await this.findActiveUserOrFail(userId);
+
+    const enderecoNormalizado = this.normalizeEndereco(dto);
+
+    const enderecoExistente = await this.enderecosUsuariosRepository.findOne({
+      where: { usuario_id: userId },
+    });
+
+    if (enderecoExistente) {
+      this.enderecosUsuariosRepository.merge(
+        enderecoExistente,
+        enderecoNormalizado,
+      );
+      const atualizado =
+        await this.enderecosUsuariosRepository.save(enderecoExistente);
+      const sanitized = this.sanitizeEndereco(atualizado);
+
+      if (!sanitized) {
+        throw new BadRequestException(
+          'Nao foi possivel persistir o endereco atualizado',
+        );
+      }
+
+      return sanitized;
+    }
+
+    const novoEndereco = this.enderecosUsuariosRepository.create({
+      usuario_id: userId,
+      ...enderecoNormalizado,
+    });
+    const salvo = await this.enderecosUsuariosRepository.save(novoEndereco);
+    const sanitized = this.sanitizeEndereco(salvo);
+
+    if (!sanitized) {
+      throw new BadRequestException('Nao foi possivel salvar o endereco');
+    }
+
+    return sanitized;
+  }
+
   private async findOneOrFail(id: string): Promise<Usuario> {
     const usuario = await this.usuariosRepository.findOne({ where: { id } });
 
