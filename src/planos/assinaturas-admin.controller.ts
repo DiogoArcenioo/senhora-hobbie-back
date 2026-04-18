@@ -8,8 +8,11 @@ import {
   Post,
   Req,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { CreateAssinaturaAdminDto } from './dto/create-assinatura-admin.dto';
 import { UpdateAssinaturaAdminDto } from './dto/update-assinatura-admin.dto';
 import { PlanosService } from './planos.service';
@@ -21,6 +24,8 @@ type AuthenticatedRequest = Request & {
 };
 
 @Controller('assinaturas')
+@UseGuards(RolesGuard)
+@Roles('ADM')
 export class AssinaturasAdminController {
   constructor(private readonly planosService: PlanosService) {}
 

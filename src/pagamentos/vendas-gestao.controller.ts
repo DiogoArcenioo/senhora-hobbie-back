@@ -8,8 +8,11 @@ import {
   Query,
   Req,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { VendasGestaoService } from './vendas-gestao.service';
 
 type AuthenticatedRequest = Request & {
@@ -24,6 +27,8 @@ type MarcarEnviadoDto = {
 };
 
 @Controller('admin/vendas')
+@UseGuards(RolesGuard)
+@Roles('ADM')
 export class VendasGestaoController {
   constructor(private readonly vendasGestaoService: VendasGestaoService) {}
 

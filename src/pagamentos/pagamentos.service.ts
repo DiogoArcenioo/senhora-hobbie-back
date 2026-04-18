@@ -905,6 +905,34 @@ export class PagamentosService {
     };
   }
 
+  async syncSubscriptionFromGateway(
+    gatewaySubscriptionId: string,
+  ): Promise<SyncResult> {
+    const normalized = gatewaySubscriptionId.trim();
+
+    if (!normalized) {
+      throw new BadRequestException('gatewaySubscriptionId e obrigatorio');
+    }
+
+    return this.syncSubscriptionByGatewaySubscriptionId(normalized, {
+      trigger: 'manual',
+    });
+  }
+
+  async syncPaymentFromGateway(
+    gatewayPaymentId: string,
+  ): Promise<SyncResult> {
+    const normalized = gatewayPaymentId.trim();
+
+    if (!normalized) {
+      throw new BadRequestException('gatewayPaymentId e obrigatorio');
+    }
+
+    return this.syncPaymentByGatewayPaymentId(normalized, {
+      trigger: 'manual',
+    });
+  }
+
   async handleMercadoPagoWebhook(input: WebhookInput) {
     const eventType = this.extractEventType(input.query, input.body);
     const action = this.extractAction(input.body, input.query);

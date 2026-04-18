@@ -1,8 +1,14 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Assinatura } from './entities/assinatura.entity';
+import { PagamentosService } from './pagamentos.service';
 
 type AssinaturaGestaoRaw = {
   assinatura_id: string;
@@ -17,6 +23,9 @@ type AssinaturaGestaoRaw = {
   data_inicio: Date | string | null;
   proxima_cobranca_em: Date | string | null;
   created_at: Date | string;
+  gateway: string | null;
+  gateway_assinatura_id: string | null;
+  renovacao_automatica: boolean | null;
 };
 
 type AssinaturaGestaoItem = {
@@ -32,12 +41,16 @@ type AssinaturaGestaoItem = {
   dataInicio: string | null;
   proximaCobrancaEm: string | null;
   createdAt: string;
+  gateway: string | null;
+  gatewayAssinaturaId: string | null;
+  renovacaoAutomatica: boolean;
 };
 
 type GestaoAssinaturasResponse = {
   resumo: {
     assinaturasAtivas: number;
     novasAssinaturasMesAtual: number;
+    receitaMensalEstimada: number;
     mesReferencia: string;
   };
   assinaturasAtivas: AssinaturaGestaoItem[];
@@ -51,6 +64,7 @@ export class AssinaturasGestaoService {
     private readonly assinaturasRepository: Repository<Assinatura>,
     @InjectRepository(Usuario)
     private readonly usuariosRepository: Repository<Usuario>,
+    private readonly pagamentosService: PagamentosService,
   ) {}
 
   async getDashboard(userId: string): Promise<GestaoAssinaturasResponse> {
@@ -62,15 +76,96 @@ export class AssinaturasGestaoService {
       this.loadNewSubscriptionsForMonth(mesReferencia),
     ]);
 
+    const receitaMensalEstimada = assinaturasAtivas.reduce((total, item) => {
+      const valor = Number(item.planoValor ?? '0');
+      return Number.isFinite(valor) ? total + valor : total;
+    }, 0);
+
     return {
       resumo: {
         assinaturasAtivas: assinaturasAtivas.length,
         novasAssinaturasMesAtual: novasAssinaturasMesAtual.length,
+        receitaMensalEstimada: Number(receitaMensalEstimada.toFixed(2)),
         mesReferencia,
       },
       assinaturasAtivas,
       novasAssinaturasMesAtual,
     };
+  }
+
+  async syncSubscription(
+    userId: string,
+    assinaturaId: string,
+  ): Promise<{ status: string; assinaturaId: string }> {
+    await this.assertAdminUser(userId);
+
+    const normalizedId = assinaturaId.trim();
+
+    if (!normalizedId) {
+      throw new BadRequestException('assinaturaId invalido');
+    }
+
+    const assinatura = await this.assinaturasRepository.findOne({
+      where: { id: normalizedId },
+    });
+
+    if (!assinatura) {
+      throw new NotFoundException('Assinatura nao encontrada');
+    }
+
+    if (
+      assinatura.gateway !== 'MERCADO_PAGO_SUBSCRIPTION' ||
+      !assinatura.gateway_assinatura_id
+    ) {
+      throw new BadRequestException(
+        'Assinatura nao possui identificador recorrente no gateway',
+      );
+    }
+
+    const result = await this.pagamentosService.syncSubscriptionFromGateway(
+      assinatura.gateway_assinatura_id,
+    );
+
+    return {
+      status: result.paymentStatus,
+      assinaturaId: result.assinaturaId ?? assinatura.id,
+    };
+  }
+
+  async cancelSubscription(
+    userId: string,
+    assinaturaId: string,
+  ): Promise<{ status: string; assinaturaId: string }> {
+    await this.assertAdminUser(userId);
+
+    const normalizedId = assinaturaId.trim();
+
+    if (!normalizedId) {
+      throw new BadRequestException('assinaturaId invalido');
+    }
+
+    const assinatura = await this.assinaturasRepository.findOne({
+      where: { id: normalizedId },
+    });
+
+    if (!assinatura) {
+      throw new NotFoundException('Assinatura nao encontrada');
+    }
+
+    if (assinatura.status === 'CANCELLED') {
+      return { status: assinatura.status, assinaturaId: assinatura.id };
+    }
+
+    assinatura.status = 'CANCELLED';
+    assinatura.cancelado_em = new Date();
+    assinatura.data_fim = assinatura.data_fim ?? new Date();
+    assinatura.renovacao_automatica = false;
+    assinatura.observacoes =
+      'Cancelada manualmente pelo painel administrativo';
+
+    const saved = await this.assinaturasRepository.save(assinatura);
+
+    return { status: saved.status, assinaturaId: saved.id };
   }
 
   private resolveReferenceMonth(): string {
@@ -111,6 +206,9 @@ export class AssinaturasGestaoService {
         'assinatura.data_inicio AS data_inicio',
         'assinatura.proxima_cobranca_em AS proxima_cobranca_em',
         'assinatura.created_at AS created_at',
+        'assinatura.gateway AS gateway',
+        'assinatura.gateway_assinatura_id AS gateway_assinatura_id',
+        'assinatura.renovacao_automatica AS renovacao_automatica',
       ])
       .where('assinatura.status = :status', { status: 'ACTIVE' })
       .andWhere('assinatura.cancelado_em IS NULL')
@@ -144,6 +242,9 @@ export class AssinaturasGestaoService {
         'assinatura.data_inicio AS data_inicio',
         'assinatura.proxima_cobranca_em AS proxima_cobranca_em',
         'assinatura.created_at AS created_at',
+        'assinatura.gateway AS gateway',
+        'assinatura.gateway_assinatura_id AS gateway_assinatura_id',
+        'assinatura.renovacao_automatica AS renovacao_automatica',
       ])
       .where('assinatura.status = :status', { status: 'ACTIVE' })
       .andWhere('assinatura.cancelado_em IS NULL')
@@ -190,6 +291,19 @@ export class AssinaturasGestaoService {
       dataInicio: this.toIsoString(raw.data_inicio),
       proximaCobrancaEm: this.toIsoString(raw.proxima_cobranca_em),
       createdAt: this.toIsoString(raw.created_at) ?? new Date().toISOString(),
+      gateway:
+        typeof raw.gateway === 'string' && raw.gateway.trim()
+          ? raw.gateway.trim()
+          : null,
+      gatewayAssinaturaId:
+        typeof raw.gateway_assinatura_id === 'string' &&
+        raw.gateway_assinatura_id.trim()
+          ? raw.gateway_assinatura_id.trim()
+          : null,
+      renovacaoAutomatica:
+        raw.renovacao_automatica === true ||
+        raw.renovacao_automatica === null ||
+        typeof raw.renovacao_automatica === 'undefined',
     };
   }
 

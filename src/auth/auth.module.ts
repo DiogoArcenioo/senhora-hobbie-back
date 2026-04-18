@@ -7,6 +7,7 @@ import { type StringValue } from 'ms';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { RolesGuard } from './guards/roles.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 function getRequiredJwtSecret(configService: ConfigService): string {
@@ -41,6 +42,7 @@ function getRequiredJwtSecret(configService: ConfigService): string {
     TypeOrmModule.forFeature([Usuario]),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, RolesGuard],
+  exports: [RolesGuard, TypeOrmModule],
 })
 export class AuthModule {}

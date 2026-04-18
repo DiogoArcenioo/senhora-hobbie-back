@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthModule } from '../auth/auth.module';
 import { PlanosModule } from '../planos/planos.module';
 import { Produto } from '../produtos/entities/produto.entity';
 import { EnderecoUsuario } from '../usuarios/entities/endereco-usuario.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
+import { AssinaturasCobrancaScheduler } from './assinaturas-cobranca.scheduler';
 import { AssinaturasGestaoController } from './assinaturas-gestao.controller';
 import { AssinaturasGestaoService } from './assinaturas-gestao.service';
 import { Assinatura } from './entities/assinatura.entity';
@@ -19,6 +21,7 @@ import { VendasProdutosService } from './vendas-produtos.service';
 
 @Module({
   imports: [
+    AuthModule,
     PlanosModule,
     TypeOrmModule.forFeature([
       Assinatura,
@@ -41,6 +44,7 @@ import { VendasProdutosService } from './vendas-produtos.service';
     AssinaturasGestaoService,
     VendasGestaoService,
     VendasProdutosService,
+    AssinaturasCobrancaScheduler,
   ],
   exports: [VendasProdutosService],
 })
