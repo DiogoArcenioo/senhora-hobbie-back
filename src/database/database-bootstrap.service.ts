@@ -56,6 +56,29 @@ export class DatabaseBootstrapService implements OnModuleInit {
       `);
 
       await this.dataSource.query(`
+        create table if not exists public.password_reset_tokens (
+          id bigserial primary key,
+          usuario_id bigint not null references public.usuarios(id) on delete cascade,
+          token_hash char(64) not null unique,
+          expires_at timestamp with time zone not null,
+          consumed_at timestamp with time zone,
+          requested_ip varchar(80),
+          requested_user_agent varchar(300),
+          created_at timestamp with time zone not null default now()
+        )
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_password_reset_tokens_usuario_id
+          on public.password_reset_tokens (usuario_id)
+      `);
+
+      await this.dataSource.query(`
+        create index if not exists idx_password_reset_tokens_expires_at
+          on public.password_reset_tokens (expires_at)
+      `);
+
+      await this.dataSource.query(`
         create table if not exists public.imagens (
           id bigserial primary key,
           usuario_id bigint not null,
@@ -263,7 +286,7 @@ export class DatabaseBootstrapService implements OnModuleInit {
       `);
 
       this.logger.log(
-        'Schema minimo de usuarios, enderecos, imagens, slider home, eventos, produtos, pagamentos e vendas_produtos verificado com sucesso',
+        'Schema minimo de usuarios, enderecos, reset de senha, imagens, slider home, eventos, produtos, pagamentos e vendas_produtos verificado com sucesso',
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

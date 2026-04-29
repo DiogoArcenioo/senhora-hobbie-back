@@ -7,6 +7,7 @@ import { type StringValue } from 'ms';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { RolesGuard } from './guards/roles.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
@@ -39,7 +40,7 @@ function getRequiredJwtSecret(configService: ConfigService): string {
         };
       },
     }),
-    TypeOrmModule.forFeature([Usuario]),
+    TypeOrmModule.forFeature([Usuario, PasswordResetToken]),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, RolesGuard],
